@@ -1,11 +1,17 @@
 import frappe
 
 ADMIN_ROLES = {"System Manager", "Education Manager"}
+ACCOUNTS_ROLES = {"Accounts Manager", "Accounts User"}
 
 
 def is_admin(user=None):
 	roles = frappe.get_roles(user or frappe.session.user)
 	return bool(ADMIN_ROLES & set(roles))
+
+
+def is_accounts(user=None):
+	roles = frappe.get_roles(user or frappe.session.user)
+	return bool(ACCOUNTS_ROLES & set(roles))
 
 
 def get_current_employee(user=None):

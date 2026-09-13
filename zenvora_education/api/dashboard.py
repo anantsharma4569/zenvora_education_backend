@@ -5,6 +5,7 @@ from zenvora_education.api.utils import (
 	get_current_student,
 	get_instructor_student_groups,
 	get_student_groups_for_student,
+	is_accounts,
 	is_admin,
 )
 
@@ -17,6 +18,9 @@ def get_dashboard():
 	instructor = get_current_instructor()
 	if instructor:
 		return _teacher_dashboard(instructor)
+
+	if is_accounts():
+		return _accounts_dashboard()
 
 	student = get_current_student()
 	if student:
@@ -37,6 +41,13 @@ def _admin_dashboard():
 		"today_absent": frappe.db.count(
 			"Student Attendance", {"date": frappe.utils.today(), "status": "Absent"}
 		),
+	}
+
+
+def _accounts_dashboard():
+	return {
+		"role": "accounts",
+		"student_count": frappe.db.count("Student", {"enabled": 1}),
 	}
 
 
