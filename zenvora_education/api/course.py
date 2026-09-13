@@ -1,0 +1,29 @@
+import frappe
+from frappe import _
+
+
+@frappe.whitelist()
+def create_course(course_name, department=None, description=None):
+	if not frappe.has_permission("Course", "create"):
+		frappe.throw(_("Not permitted to create Course records"))
+
+	course = frappe.get_doc(
+		{
+			"doctype": "Course",
+			"course_name": course_name,
+			"department": department,
+			"description": description,
+		}
+	)
+	course.insert()
+	return course.name
+
+
+@frappe.whitelist()
+def list_courses(department=None):
+	filters = {}
+	if department:
+		filters["department"] = department
+	return frappe.get_all(
+		"Course", filters=filters, fields=["name", "course_name", "department"], order_by="course_name"
+	)
