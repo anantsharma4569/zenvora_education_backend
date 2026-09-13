@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 
-from zenvora_education.api.utils import is_admin
+from zenvora_education.api.utils import as_administrator, is_admin
 
 
 def _require_admin():
@@ -10,7 +10,7 @@ def _require_admin():
 
 
 def _default_company():
-	return frappe.get_all("Company", limit_page_length=1, pluck="name")[0]
+	return frappe.get_all("Company", limit_page_length=1, pluck="name", ignore_permissions=True)[0]
 
 
 # --- Company (created via the Frappe desk during ERPNext setup, read-only here) ---
@@ -19,7 +19,9 @@ def _default_company():
 @frappe.whitelist()
 def list_companies():
 	_require_admin()
-	return frappe.get_all("Company", fields=["name", "default_currency", "country"], order_by="name")
+	return frappe.get_all(
+		"Company", fields=["name", "default_currency", "country"], order_by="name", ignore_permissions=True
+	)
 
 
 # --- Department ---
@@ -28,7 +30,12 @@ def list_companies():
 @frappe.whitelist()
 def list_departments():
 	_require_admin()
-	return frappe.get_all("Department", fields=["name", "department_name", "company"], order_by="department_name")
+	return frappe.get_all(
+		"Department",
+		fields=["name", "department_name", "company"],
+		order_by="department_name",
+		ignore_permissions=True,
+	)
 
 
 @frappe.whitelist()
@@ -41,7 +48,7 @@ def create_department(department_name, company=None):
 			"company": company or _default_company(),
 		}
 	)
-	doc.insert()
+	doc.insert(ignore_permissions=True)
 	return doc.name
 
 
@@ -52,7 +59,10 @@ def create_department(department_name, company=None):
 def list_academic_years():
 	_require_admin()
 	return frappe.get_all(
-		"Academic Year", fields=["name", "year_start_date", "year_end_date"], order_by="year_start_date desc"
+		"Academic Year",
+		fields=["name", "year_start_date", "year_end_date"],
+		order_by="year_start_date desc",
+		ignore_permissions=True,
 	)
 
 
@@ -67,7 +77,7 @@ def create_academic_year(academic_year_name, year_start_date, year_end_date):
 			"year_end_date": year_end_date,
 		}
 	)
-	doc.insert()
+	doc.insert(ignore_permissions=True)
 	return doc.name
 
 
@@ -85,6 +95,7 @@ def list_academic_terms(academic_year=None):
 		filters=filters,
 		fields=["name", "academic_year", "term_name", "term_start_date", "term_end_date"],
 		order_by="term_start_date",
+		ignore_permissions=True,
 	)
 
 
@@ -100,7 +111,7 @@ def create_academic_term(academic_year, term_name, term_start_date, term_end_dat
 			"term_end_date": term_end_date,
 		}
 	)
-	doc.insert()
+	doc.insert(ignore_permissions=True)
 	return doc.name
 
 
@@ -110,14 +121,16 @@ def create_academic_term(academic_year, term_name, term_start_date, term_end_dat
 @frappe.whitelist()
 def list_programs():
 	_require_admin()
-	return frappe.get_all("Program", fields=["name", "program_name", "department"], order_by="program_name")
+	return frappe.get_all(
+		"Program", fields=["name", "program_name", "department"], order_by="program_name", ignore_permissions=True
+	)
 
 
 @frappe.whitelist()
 def create_program(program_name, department=None):
 	_require_admin()
 	doc = frappe.get_doc({"doctype": "Program", "program_name": program_name, "department": department})
-	doc.insert()
+	doc.insert(ignore_permissions=True)
 	return doc.name
 
 
@@ -131,6 +144,7 @@ def list_student_groups():
 		"Student Group",
 		fields=["name", "student_group_name", "program", "academic_year", "academic_term", "max_strength", "disabled"],
 		order_by="student_group_name",
+		ignore_permissions=True,
 	)
 
 
@@ -148,7 +162,7 @@ def create_student_group(student_group_name, program, academic_year, academic_te
 			"max_strength": max_strength,
 		}
 	)
-	doc.insert()
+	doc.insert(ignore_permissions=True)
 	return doc.name
 
 
@@ -158,7 +172,9 @@ def create_student_group(student_group_name, program, academic_year, academic_te
 @frappe.whitelist()
 def list_fee_categories():
 	_require_admin()
-	return frappe.get_all("Fee Category", fields=["name", "category_name"], order_by="category_name")
+	return frappe.get_all(
+		"Fee Category", fields=["name", "category_name"], order_by="category_name", ignore_permissions=True
+	)
 
 
 @frappe.whitelist()
@@ -173,7 +189,12 @@ def create_fee_category(category_name):
 		frappe.flags.cross_app_hsn_code = "999231"
 
 	doc = frappe.get_doc({"doctype": "Fee Category", "category_name": category_name})
-	doc.insert()
+
+	# Fee Category.after_insert creates a linked Item - that insert runs under
+	# frappe.session.user regardless of the ignore_permissions passed here.
+	with as_administrator():
+		doc.insert(ignore_permissions=True)
+
 	return doc.name
 
 
@@ -187,6 +208,7 @@ def list_fee_structures():
 		"Fee Structure",
 		fields=["name", "program", "academic_year", "academic_term", "total_amount"],
 		order_by="creation desc",
+		ignore_permissions=True,
 	)
 
 
@@ -220,5 +242,5 @@ def create_fee_structure(program, academic_year, components, academic_term=None)
 			"components": [{"fees_category": c["fees_category"], "amount": c["amount"]} for c in components],
 		}
 	)
-	doc.insert()
+	doc.insert(ignore_permissions=True)
 	return doc.name

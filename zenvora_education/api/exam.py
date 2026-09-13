@@ -51,6 +51,7 @@ def get_results(student_group=None):
 		filters=filters,
 		fields=RESULT_FIELDS,
 		order_by="creation desc",
+		ignore_permissions=True,
 	)
 
 
@@ -66,4 +67,5 @@ def get_my_results():
 		filters={"student": student},
 		fields=RESULT_FIELDS,
 		order_by="creation desc",
+		ignore_permissions=True,
 	)

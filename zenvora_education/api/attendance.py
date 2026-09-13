@@ -32,6 +32,7 @@ def get_employee_attendance(employee=None, from_date=None, to_date=None):
 		filters=filters,
 		fields=["name", "employee", "employee_name", "attendance_date", "status", "department"],
 		order_by="attendance_date desc",
+		ignore_permissions=True,
 	)
 
 
@@ -67,6 +68,7 @@ def get_student_attendance(student_group=None, date=None):
 		filters=filters,
 		fields=["name", "student", "student_name", "student_group", "date", "status"],
 		order_by="date desc",
+		ignore_permissions=True,
 	)
 
 
@@ -86,6 +88,7 @@ def get_my_attendance(from_date=None, to_date=None):
 		filters=filters,
 		fields=["name", "date", "student_group", "status"],
 		order_by="date desc",
+		ignore_permissions=True,
 	)
 
 

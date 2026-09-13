@@ -67,6 +67,7 @@ def _student_dashboard(student):
 		filters={"student": student},
 		fields=["status", "count(name) as count"],
 		group_by="status",
+		ignore_permissions=True,
 	)
 	return {
 		"role": "student",

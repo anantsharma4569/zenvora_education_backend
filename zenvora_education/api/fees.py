@@ -30,6 +30,7 @@ def get_fees(student=None):
 		filters=filters,
 		fields=FEE_FIELDS,
 		order_by="due_date desc",
+		ignore_permissions=True,
 	)
 
 
@@ -45,4 +46,5 @@ def get_my_fees():
 		filters={"student": student},
 		fields=FEE_FIELDS,
 		order_by="due_date desc",
+		ignore_permissions=True,
 	)

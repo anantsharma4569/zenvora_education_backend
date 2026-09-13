@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 
 from zenvora_education.api.utils import (
+	as_administrator,
 	get_current_instructor,
 	get_instructor_student_groups,
 	is_accounts,
@@ -23,6 +24,7 @@ def list_students(search=None):
 			filters=filters,
 			fields=["name", "student_name", "student_email_id", "enabled"],
 			order_by="student_name",
+			ignore_permissions=True,
 		)
 
 	instructor = get_current_instructor()
@@ -37,6 +39,7 @@ def list_students(search=None):
 		"Student Group Student",
 		filters={"parent": ["in", allowed_groups], "active": 1},
 		pluck="student",
+		ignore_permissions=True,
 	)
 	if not student_names:
 		return []
@@ -46,6 +49,7 @@ def list_students(search=None):
 		filters={"name": ["in", student_names], "enabled": 1},
 		fields=["name", "student_name"],
 		order_by="student_name",
+		ignore_permissions=True,
 	)
 
 
@@ -80,19 +84,25 @@ def create_student(
 			"enabled": 1,
 		}
 	)
-	student.insert()
 
 	enrollment = frappe.get_doc(
 		{
 			"doctype": "Program Enrollment",
-			"student": student.name,
-			"student_name": student.student_name,
+			"student": None,
 			"program": program,
 			"academic_year": academic_year,
 			"academic_term": academic_term,
 			"enrollment_date": frappe.utils.today(),
 		}
 	)
-	enrollment.insert()
+
+	# Student.validate() creates a linked User (Education app's own hook) - that
+	# insert runs under frappe.session.user regardless of the ignore_permissions
+	# passed here, so it needs a real elevation, not just a flag.
+	with as_administrator():
+		student.insert(ignore_permissions=True)
+		enrollment.student = student.name
+		enrollment.student_name = student.student_name
+		enrollment.insert(ignore_permissions=True)
 
 	return {"student": student.name, "program_enrollment": enrollment.name}

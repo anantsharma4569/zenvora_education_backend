@@ -1,10 +1,12 @@
 import frappe
 from frappe import _
 
+from zenvora_education.api.utils import is_admin
+
 
 @frappe.whitelist()
 def create_course(course_name, department=None, description=None):
-	if not frappe.has_permission("Course", "create"):
+	if not is_admin():
 		frappe.throw(_("Not permitted to create Course records"))
 
 	course = frappe.get_doc(
@@ -15,7 +17,7 @@ def create_course(course_name, department=None, description=None):
 			"description": description,
 		}
 	)
-	course.insert()
+	course.insert(ignore_permissions=True)
 	return course.name
 
 
@@ -25,5 +27,9 @@ def list_courses(department=None):
 	if department:
 		filters["department"] = department
 	return frappe.get_all(
-		"Course", filters=filters, fields=["name", "course_name", "department"], order_by="course_name"
+		"Course",
+		filters=filters,
+		fields=["name", "course_name", "department"],
+		order_by="course_name",
+		ignore_permissions=True,
 	)
