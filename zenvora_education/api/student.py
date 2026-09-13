@@ -96,17 +96,3 @@ def create_student(
 	enrollment.insert()
 
 	return {"student": student.name, "program_enrollment": enrollment.name}
-
-
-@frappe.whitelist()
-def list_programs():
-	if not is_admin():
-		frappe.throw(_("Not authorized"))
-	return frappe.get_all("Program", fields=["name", "program_name"], order_by="program_name")
-
-
-@frappe.whitelist()
-def list_academic_years():
-	if not is_admin():
-		frappe.throw(_("Not authorized"))
-	return frappe.get_all("Academic Year", fields=["name"], order_by="year_start_date desc")
