@@ -47,3 +47,66 @@ def list_students(search=None):
 		fields=["name", "student_name"],
 		order_by="student_name",
 	)
+
+
+@frappe.whitelist()
+def create_student(
+	first_name,
+	student_email_id,
+	program,
+	academic_year,
+	last_name=None,
+	date_of_birth=None,
+	gender=None,
+	academic_term=None,
+):
+	"""Onboard a new student: creates the Student record (which auto-creates
+	a Website User with the Student role via the Education app's own
+	validate_user hook, unless Education Settings has user creation disabled)
+	and enrolls them into a Program for the given Academic Year in one step.
+	"""
+	if not is_admin():
+		frappe.throw(_("Not authorized to create students"))
+
+	student = frappe.get_doc(
+		{
+			"doctype": "Student",
+			"first_name": first_name,
+			"last_name": last_name,
+			"student_email_id": student_email_id,
+			"date_of_birth": date_of_birth,
+			"gender": gender,
+			"joining_date": frappe.utils.today(),
+			"enabled": 1,
+		}
+	)
+	student.insert()
+
+	enrollment = frappe.get_doc(
+		{
+			"doctype": "Program Enrollment",
+			"student": student.name,
+			"student_name": student.student_name,
+			"program": program,
+			"academic_year": academic_year,
+			"academic_term": academic_term,
+			"enrollment_date": frappe.utils.today(),
+		}
+	)
+	enrollment.insert()
+
+	return {"student": student.name, "program_enrollment": enrollment.name}
+
+
+@frappe.whitelist()
+def list_programs():
+	if not is_admin():
+		frappe.throw(_("Not authorized"))
+	return frappe.get_all("Program", fields=["name", "program_name"], order_by="program_name")
+
+
+@frappe.whitelist()
+def list_academic_years():
+	if not is_admin():
+		frappe.throw(_("Not authorized"))
+	return frappe.get_all("Academic Year", fields=["name"], order_by="year_start_date desc")
