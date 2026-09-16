@@ -10,15 +10,29 @@ from zenvora_education.api.utils import (
 )
 
 
+def _students_enrolled_in(program):
+	"""Student names with a Program Enrollment in `program` (the "class"/grade -
+	Student itself has no program field, that only exists via Program Enrollment)."""
+	return frappe.get_all(
+		"Program Enrollment", filters={"program": program}, pluck="student", ignore_permissions=True
+	)
+
+
 @frappe.whitelist()
-def list_students(search=None):
-	"""Admin/Accounts: all enabled students (optionally filtered by name search).
-	Teacher: only students in their assigned Student Groups.
+def list_students(search=None, program=None):
+	"""Admin/Accounts: all enabled students, optionally filtered by name search
+	and/or Program (class/grade). Teacher: only students in their assigned
+	Student Groups, with the same optional filters.
 	"""
 	if is_admin() or is_accounts():
 		filters = {"enabled": 1}
 		if search:
 			filters["student_name"] = ["like", f"%{search}%"]
+		if program:
+			enrolled = _students_enrolled_in(program)
+			if not enrolled:
+				return []
+			filters["name"] = ["in", enrolled]
 		return frappe.get_all(
 			"Student",
 			filters=filters,
@@ -43,6 +57,12 @@ def list_students(search=None):
 	)
 	if not student_names:
 		return []
+
+	if program:
+		enrolled = set(_students_enrolled_in(program))
+		student_names = [s for s in student_names if s in enrolled]
+		if not student_names:
+			return []
 
 	return frappe.get_all(
 		"Student",
