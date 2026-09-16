@@ -56,6 +56,27 @@ PROGRAM_FEE = {
 	"Grade 11": 21000,
 }
 
+# Designation.is_teaching_role (custom field) drives the Staff directory's
+# teaching/non-teaching split - see zenvora_education/api/staff.py.
+TEACHING_DESIGNATIONS = [
+	"Teacher",
+	"Senior Teacher",
+	"Head of Department (HOD)",
+	"Principal",
+	"Lab Instructor",
+	"Physical Education Teacher",
+]
+NON_TEACHING_DESIGNATIONS = [
+	"Accountant",
+	"Front Desk Executive",
+	"Librarian",
+	"Front Desk / Receptionist",
+	"Peon / Attendant",
+	"IT Support",
+	"Administrative Officer",
+	"Transport Coordinator",
+]
+
 FIRST_NAMES = [
 	"Aarav", "Vivaan", "Aditya", "Vihaan", "Arjun", "Sai", "Reyansh", "Ayaan",
 	"Krishna", "Ishaan", "Ananya", "Diya", "Saanvi", "Aadhya", "Kiara", "Myra",
@@ -260,7 +281,13 @@ def _run():
 
 	print("Creating Designations...")
 	designations = {}
-	for d_name in ("Teacher", "Accountant", "Front Desk Executive"):
+	for d_name in TEACHING_DESIGNATIONS:
+		if not frappe.db.exists("Designation", d_name):
+			frappe.get_doc(
+				{"doctype": "Designation", "designation_name": d_name, "is_teaching_role": 1}
+			).insert(ignore_permissions=True)
+		designations[d_name] = d_name
+	for d_name in NON_TEACHING_DESIGNATIONS:
 		if not frappe.db.exists("Designation", d_name):
 			frappe.get_doc({"doctype": "Designation", "designation_name": d_name}).insert(
 				ignore_permissions=True
