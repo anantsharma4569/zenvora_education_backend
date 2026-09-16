@@ -18,17 +18,37 @@ def _students_enrolled_in(program):
 	)
 
 
+def _students_in_group(student_group):
+	"""Student names active in a specific Student Group (the "section", e.g.
+	"Grade 3 - B")."""
+	return frappe.get_all(
+		"Student Group Student",
+		filters={"parent": student_group, "active": 1},
+		pluck="student",
+		ignore_permissions=True,
+	)
+
+
 @frappe.whitelist()
-def list_students(search=None, program=None):
-	"""Admin/Accounts: all enabled students, optionally filtered by name search
-	and/or Program (class/grade). Teacher: only students in their assigned
-	Student Groups, with the same optional filters.
+def list_students(search=None, program=None, student_group=None):
+	"""Admin/Accounts: all enabled students, optionally filtered by name search,
+	Program (class/grade) and/or Student Group (section). Teacher: only
+	students in their assigned Student Groups, with the same optional filters.
+
+	`student_group` (a specific section, e.g. "Grade 3 - B") narrows further
+	than `program` (the whole grade) - passing both is fine, student_group
+	just makes program redundant since a section belongs to one program.
 	"""
 	if is_admin() or is_accounts():
 		filters = {"enabled": 1}
 		if search:
 			filters["student_name"] = ["like", f"%{search}%"]
-		if program:
+		if student_group:
+			enrolled = _students_in_group(student_group)
+			if not enrolled:
+				return []
+			filters["name"] = ["in", enrolled]
+		elif program:
 			enrolled = _students_enrolled_in(program)
 			if not enrolled:
 				return []
@@ -49,6 +69,11 @@ def list_students(search=None, program=None):
 	if not allowed_groups:
 		return []
 
+	if student_group:
+		if student_group not in allowed_groups:
+			frappe.throw(_("Not authorized for this Student Group"))
+		allowed_groups = [student_group]
+
 	student_names = frappe.get_all(
 		"Student Group Student",
 		filters={"parent": ["in", allowed_groups], "active": 1},
@@ -58,7 +83,7 @@ def list_students(search=None, program=None):
 	if not student_names:
 		return []
 
-	if program:
+	if program and not student_group:
 		enrolled = set(_students_enrolled_in(program))
 		student_names = [s for s in student_names if s in enrolled]
 		if not student_names:
