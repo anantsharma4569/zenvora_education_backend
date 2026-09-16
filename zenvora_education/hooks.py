@@ -140,17 +140,24 @@ app_license = "mit"
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
 
+# Fixtures
+# --------
+# Custom Fields this app adds to doctypes it doesn't own (never edit those
+# doctypes' own JSON directly - see the "no core app edits" project rule).
+
+fixtures = [
+	{"dt": "Custom Field", "filters": [["name", "=", "Designation-is_teaching_role"]]},
+]
+
 # Document Events
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Instructor": {
+		"validate": "zenvora_education.api.staff.warn_if_not_teaching_designation",
+	}
+}
 
 # Scheduled Tasks
 # ---------------
