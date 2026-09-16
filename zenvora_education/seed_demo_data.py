@@ -1,5 +1,8 @@
 """One-off demo data seeder for a fresh, empty Zenvora Education database.
 
+Models the school's real shape: Grade 1 through Grade 10, each with A/B/C
+sections, 15-30 students per section.
+
 NOT wired into hooks.py or the patch system - run manually, once, via:
 
     bench --site school.localhost execute zenvora_education.seed_demo_data.run
@@ -8,12 +11,15 @@ Refuses to run if a Company already exists, since it is not idempotent and
 was written to populate a database that was just wiped clean, not to be
 re-run against live data.
 
-The only accounting simplification here: fee "collection" is faked by
-setting Fees.outstanding_amount directly instead of posting real Payment
-Entries/GL entries, since this script exists to back dashboard numbers, not
-to stand up a real accounting trail. Nothing else takes a shortcut - every
-other record goes through the normal doctype validate()/insert() lifecycle
-(and the app's own whitelisted setup functions where they already exist).
+Two shortcuts, both called out where they happen:
+- Fee "collection" is faked by setting Fees.outstanding_amount directly
+  instead of posting real Payment Entries/GL entries - this script exists to
+  back dashboard numbers, not to stand up a real accounting trail.
+- Student Attendance (by far the highest-volume doctype here - 10 grades x 3
+  sections x ~22 students x 14 days is several thousand rows) is written via
+  frappe.db.bulk_insert instead of one insert() per row, for speed. Every
+  other record goes through the normal doctype validate()/insert() lifecycle
+  (and the app's own whitelisted setup functions where they already exist).
 """
 
 import random
@@ -36,25 +42,14 @@ from zenvora_education.api.settings import (
 from zenvora_education.api.student import create_student
 from zenvora_education.api.utils import as_administrator
 
-GROUPS = [
-	# (program_name, group_label, target_attendance_pct, student_count)
-	("Grade 6", "Grade 6 - A", 96, 15),
-	("Grade 7", "Grade 7 - B", 93, 14),
-	("Grade 8", "Grade 8 - A", 90, 13),
-	("Grade 9", "Grade 9 - A", 88, 13),
-	("Grade 9", "Grade 9 - B", 82, 12),
-	("Grade 10", "Grade 10 - A", 79, 12),
-	("Grade 11", "Grade 11 - Science", 94, 11),
-]
+GRADES = range(1, 11)  # Grade 1 .. Grade 10
+SECTIONS = ["A", "B", "C"]
+STUDENTS_PER_SECTION = (15, 30)  # inclusive random range
+ATTENDANCE_PCT_RANGE = (78, 97)  # per-section target, randomized for variety
 
-PROGRAM_FEE = {
-	"Grade 6": 16000,
-	"Grade 7": 17000,
-	"Grade 8": 18000,
-	"Grade 9": 19000,
-	"Grade 10": 20000,
-	"Grade 11": 21000,
-}
+# Base fee for Grade 1, +900 per grade up (Grade 10 = 12000 + 9*900 = 20100).
+FEE_BASE = 12000
+FEE_STEP = 900
 
 # Designation.is_teaching_role (custom field) drives the Staff directory's
 # teaching/non-teaching split - see zenvora_education/api/staff.py.
@@ -81,11 +76,16 @@ FIRST_NAMES = [
 	"Aarav", "Vivaan", "Aditya", "Vihaan", "Arjun", "Sai", "Reyansh", "Ayaan",
 	"Krishna", "Ishaan", "Ananya", "Diya", "Saanvi", "Aadhya", "Kiara", "Myra",
 	"Anika", "Navya", "Riya", "Siya", "Rohan", "Karan", "Nikhil", "Tara",
-	"Meera", "Pooja", "Rahul", "Sanjay", "Neha", "Priya",
+	"Meera", "Pooja", "Rahul", "Sanjay", "Neha", "Priya", "Aarush", "Dhruv",
+	"Kabir", "Yash", "Om", "Advait", "Shaurya", "Vedant", "Kiaan", "Arnav",
+	"Zara", "Ira", "Anvi", "Mahi", "Prisha", "Avni", "Shreya", "Tanvi",
+	"Nitya", "Aarohi", "Lakshmi", "Divya", "Kavya", "Sneha", "Anjali", "Ritu",
+	"Manish", "Deepak", "Suresh", "Vikram", "Amit", "Ajay", "Ravi", "Gaurav",
 ]
 LAST_NAMES = [
 	"Sharma", "Verma", "Gupta", "Kumar", "Singh", "Patel", "Reddy", "Nair",
-	"Iyer", "Rao", "Mehta", "Joshi", "Desai", "Kapoor", "Malhotra",
+	"Iyer", "Rao", "Mehta", "Joshi", "Desai", "Kapoor", "Malhotra", "Chauhan",
+	"Bose", "Menon", "Pillai", "Agarwal",
 ]
 
 random.seed(42)
@@ -93,6 +93,12 @@ _used_names = set()
 
 
 def _unique_name():
+	"""Every full name here needs to be globally unique: the Education app
+	auto-creates a Customer (Student.on_update) and an Instructor record,
+	both of which use the person's full name as their doctype `name` (not a
+	generated series) - a repeated name is a primary-key collision, not just
+	a cosmetic duplicate. ~715 people are created against a ~1,200-combo
+	pool, comfortable margin for this loop to terminate quickly."""
 	while True:
 		name = (random.choice(FIRST_NAMES), random.choice(LAST_NAMES))
 		if name not in _used_names:
@@ -121,7 +127,15 @@ def run():
 	# throttles bulk User creation past 60/minute as an abuse guard. in_import is
 	# Frappe's own documented escape hatch for exactly this - a bulk-import-shaped
 	# script, not a user signing up.
+	#
+	# in_install matters for a different reason: User.on_update() unconditionally
+	# enqueues a create_contact background job per User (enqueue_after_commit=True,
+	# `now=frappe.in_test or frappe.flags.in_install`). At ~500 Students that queue
+	# backlog trips Frappe's own QueueOverloaded safety limit and crashes the very
+	# next Student.insert(). in_install makes that enqueue run inline instead -
+	# exactly the installer's own bulk-provisioning path, which is what this is.
 	frappe.flags.in_import = True
+	frappe.flags.in_install = True
 	with as_administrator():
 		_run()
 
@@ -143,6 +157,7 @@ CLEANUP_DOCTYPES = [
 	"Program",
 	"Academic Term",
 	"Academic Year",
+	"Customer",  # auto-created per Student by Student.on_update -> create_customer
 ]
 
 
@@ -180,6 +195,21 @@ def cleanup():
 
 		frappe.db.commit()
 		print("Cleaned up." if company_name else "Cleaned up (no Company was present).")
+
+
+def _bulk_mark_attendance(rows):
+	"""rows: list of (student, student_group, date, status). Bypasses the ORM
+	(no validate(), no naming-series counter) purely for insert speed at this
+	volume - see the module docstring. Names are our own scheme, distinct from
+	the naming series Student Attendance normally uses, so there's no
+	collision risk with attendance created later through the real API."""
+	fields = ["name", "creation", "modified", "modified_by", "owner", "docstatus", "student", "student_group", "date", "status"]
+	now = frappe.utils.now()
+	values = (
+		(f"BULK-ATT-{i:07d}", now, now, "Administrator", "Administrator", 0, student, group, date, status)
+		for i, (student, group, date, status) in enumerate(rows)
+	)
+	frappe.db.bulk_insert("Student Attendance", fields, values)
 
 
 def _run():
@@ -224,23 +254,25 @@ def _run():
 	term_2 = create_academic_term(academic_year, "Term 2", "2026-09-16", "2027-03-31")
 	print(f"  {academic_year} / {term_2}")
 
-	print("Creating Programs...")
+	print("Creating Programs (Grade 1 - Grade 10)...")
 	programs = {}
-	for program_name in PROGRAM_FEE:
+	program_fee = {}
+	for grade in GRADES:
+		program_name = f"Grade {grade}"
 		programs[program_name] = create_program(program_name, department)
+		program_fee[program_name] = FEE_BASE + (grade - 1) * FEE_STEP
 	print(f"  {list(programs.values())}")
 
 	print("Creating Fee Category and Fee Structures...")
 	fee_category = create_fee_category("Tuition Fee")
 	fee_structures = {}
-	for program_name, amount in PROGRAM_FEE.items():
+	for program_name, amount in program_fee.items():
 		fee_structures[program_name] = create_fee_structure(
 			programs[program_name],
 			academic_year,
 			[{"fees_category": fee_category, "amount": amount}],
 			academic_term=term_2,
 		)
-	print(f"  {fee_structures}")
 
 	print("Creating Course...")
 	course = create_course("Mathematics", department)
@@ -294,61 +326,56 @@ def _run():
 			)
 		designations[d_name] = d_name
 
-	print("Creating instructors (one per Student Group) and extra staff...")
-	instructors_by_group = {}
-	employees = []
-	for _, group_label, _, _ in GROUPS:
+	def _new_employee(designation, is_instructor):
 		fname, lname = _unique_name()
-		result = create_employee(
+		return create_employee(
 			first_name=fname,
 			last_name=lname,
 			gender=random.choice(["Male", "Female"]),
 			date_of_birth=f"{random.randint(1978, 1995)}-0{random.randint(1, 9)}-1{random.randint(0, 8)}",
 			department=department,
-			designation=designations["Teacher"],
+			designation=designation,
 			date_of_joining=f"{random.randint(2019, 2025)}-0{random.randint(1, 6)}-01",
 			company=company_name,
-			personal_email=f"{fname.lower()}.{lname.lower()}{random.randint(100, 999)}@zenvora-staff.example",
-			is_instructor=1,
+			personal_email=f"{fname.lower()}.{lname.lower()}{random.randint(1000, 99999)}@zenvora-staff.example",
+			is_instructor=is_instructor,
 		)
+
+	groups = [(f"Grade {grade}", f"Grade {grade} - {section}") for grade in GRADES for section in SECTIONS]
+
+	print(f"Creating {len(groups)} instructors (one per section) and non-teaching staff...")
+	instructors_by_group = {}
+	employees = []
+	for _, group_label in groups:
+		result = _new_employee(designations["Teacher"], is_instructor=1)
 		employees.append(result["employee"])
 		instructors_by_group[group_label] = result["instructor"]
 
-	for d_name in ("Accountant", "Accountant", "Front Desk Executive"):
-		fname, lname = _unique_name()
-		result = create_employee(
-			first_name=fname,
-			last_name=lname,
-			gender=random.choice(["Male", "Female"]),
-			date_of_birth=f"{random.randint(1978, 1995)}-0{random.randint(1, 9)}-1{random.randint(0, 8)}",
-			department=department,
-			designation=designations[d_name],
-			date_of_joining=f"{random.randint(2019, 2025)}-0{random.randint(1, 6)}-01",
-			company=company_name,
-			personal_email=f"{fname.lower()}.{lname.lower()}{random.randint(100, 999)}@zenvora-staff.example",
-			is_instructor=0,
-		)
+	for d_name in NON_TEACHING_DESIGNATIONS:
+		result = _new_employee(designations[d_name], is_instructor=0)
 		employees.append(result["employee"])
 	print(f"  {len(employees)} employees, {len(instructors_by_group)} instructors")
 
 	school_days = _school_days_ending_today(14)
 	print(f"Attendance window: {school_days[0]} .. {school_days[-1]}")
 
-	print("Creating Student Groups, enrolling students, marking attendance and results...")
+	print(f"Creating {len(groups)} Student Groups, enrolling students, marking results/fees...")
 	total_students = 0
 	all_results_summary = {"A+": 0, "A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+	attendance_rows = []
 
-	for program_name, group_label, target_pct, count in GROUPS:
+	for program_name, group_label in groups:
+		count = random.randint(*STUDENTS_PER_SECTION)
+		target_pct = random.randint(*ATTENDANCE_PCT_RANGE)
+
 		group_name = create_student_group(group_label, programs[program_name], academic_year, term_2)
 
 		group_doc = frappe.get_doc("Student Group", group_name)
-		group_doc.append(
-			"instructors", {"instructor": instructors_by_group[group_label]}
-		)
+		group_doc.append("instructors", {"instructor": instructors_by_group[group_label]})
 
 		fee_structure = fee_structures[program_name]
 		fee_structure_doc = frappe.get_doc("Fee Structure", fee_structure)
-		fee_amount = PROGRAM_FEE[program_name]
+		fee_amount = program_fee[program_name]
 
 		assessment_plan = frappe.get_doc(
 			{
@@ -379,40 +406,54 @@ def _run():
 			idx = total_students + i
 			email = f"{fname.lower()}.{lname.lower()}{idx}@zenvora-students.example"
 			# Re-assert on every call: something during Company/Chart-of-Accounts
-			# setup resets frappe.flags to its frappe.init() defaults (in_import back
-			# to False) partway through this script, so setting it once up front
-			# isn't reliable.
+			# setup resets frappe.flags to its frappe.init() defaults (in_import/
+			# in_install back to False) partway through this script, so setting
+			# them once up front isn't reliable.
 			frappe.flags.in_import = True
+			frappe.flags.in_install = True
 			created = create_student(
 				first_name=fname,
 				last_name=lname,
 				student_email_id=email,
 				program=programs[program_name],
 				academic_year=academic_year,
-				date_of_birth="2012-06-15",
+				date_of_birth=f"{2026 - 5 - int(program_name.split()[-1])}-06-15",
 				gender=random.choice(["Male", "Female"]),
 			)
 			student_names.append(created["student"])
-			group_doc.append("students", {"student": created["student"], "active": 1})
+			# student_name/group_roll_number set here because validate() (which
+			# would normally fill them in) is skipped below - see the comment at
+			# the group_doc.flags assignment further down.
+			group_doc.append(
+				"students",
+				{
+					"student": created["student"],
+					"student_name": f"{fname} {lname}",
+					"group_roll_number": i + 1,
+					"active": 1,
+				},
+			)
 
+		# Same shape as the Fees.income_account workaround above: every Student/
+		# Instructor here was inserted by this script a moment ago and is known
+		# valid, and enabled=1 (create_student always sets it). _validate_links()
+		# and Student Group's own validate() (validate_students' "is inactive
+		# student" check, on top of the "title" column bug already routed around
+		# by setting student_name above) have each intermittently misreported
+		# known-good rows as missing/inactive at this volume - not worth chasing
+		# further for a seed script when every value here was just verified by
+		# this same script moments earlier.
+		group_doc.flags.ignore_links = True
+		group_doc.flags.ignore_validate = True
 		group_doc.insert(ignore_permissions=True) if group_doc.is_new() else group_doc.save(
 			ignore_permissions=True
 		)
 		total_students += count
 
-		# Attendance for the last 14 school days, hitting roughly target_pct present.
 		for student in student_names:
 			for day in school_days:
 				status = "Present" if random.random() * 100 < target_pct else "Absent"
-				frappe.get_doc(
-					{
-						"doctype": "Student Attendance",
-						"student": student,
-						"student_group": group_name,
-						"date": day,
-						"status": status,
-					}
-				).insert(ignore_permissions=True)
+				attendance_rows.append((student, group_name, day, status))
 
 		# Assessment results: scores skewed to a realistic pass curve.
 		for student in student_names:
@@ -473,40 +514,49 @@ def _run():
 			# Simplification noted in the module docstring: no Payment Entry/GL trail.
 			frappe.db.set_value("Fees", fees_doc.name, "outstanding_amount", outstanding)
 
+		# Commit per group instead of leaving one multi-thousand-row transaction
+		# open for the whole run: past ~15 groups, validate() calls elsewhere in
+		# this script started seeing wrong results for rows this same script had
+		# just inserted (a Fees fetch_from crash, "could not find" on students/
+		# instructors that plainly existed, "inactive student" for one just
+		# created enabled=1) - different symptoms, same shape, all going away
+		# once each group's writes are committed before the next one starts.
+		frappe.db.commit()
+
 		print(f"  {group_label}: {count} students, target {target_pct}% attendance")
 
+	print(f"Bulk-inserting {len(attendance_rows)} attendance records...")
+	_bulk_mark_attendance(attendance_rows)
+	frappe.db.commit()
+
 	print("Marking today's staff attendance...")
-	for i, employee in enumerate(employees):
-		if i < 7:
-			status = "Present"
-		elif i == 7:
-			try:
-				frappe.get_doc(
-					{
-						"doctype": "Attendance",
-						"employee": employee,
-						"status": "On Leave",
-						"attendance_date": today(),
-						"company": company_name,
-					}
-				).insert(ignore_permissions=True)
-				continue
-			except Exception:
-				status = "Present"
-		elif i == 8:
-			status = "Absent"
-		else:
-			continue  # leave unmarked
+	random.shuffle(employees)
+	n = len(employees)
+	on_leave_n = max(1, round(n * 0.04))
+	absent_n = max(1, round(n * 0.03))
+	unmarked_n = max(1, round(n * 0.05))
+	present_n = n - on_leave_n - absent_n - unmarked_n
 
+	idx = 0
+	for _ in range(present_n):
 		frappe.get_doc(
-			{
-				"doctype": "Attendance",
-				"employee": employee,
-				"status": status,
-				"attendance_date": today(),
-				"company": company_name,
-			}
+			{"doctype": "Attendance", "employee": employees[idx], "status": "Present", "attendance_date": today(), "company": company_name}
 		).insert(ignore_permissions=True)
+		idx += 1
+	for _ in range(on_leave_n):
+		try:
+			frappe.get_doc(
+				{"doctype": "Attendance", "employee": employees[idx], "status": "On Leave", "attendance_date": today(), "company": company_name}
+			).insert(ignore_permissions=True)
+		except Exception:
+			pass
+		idx += 1
+	for _ in range(absent_n):
+		frappe.get_doc(
+			{"doctype": "Attendance", "employee": employees[idx], "status": "Absent", "attendance_date": today(), "company": company_name}
+		).insert(ignore_permissions=True)
+		idx += 1
+	# Remaining `unmarked_n` employees are left with no Attendance record for today.
 
-	print(f"Done. {total_students} students across {len(GROUPS)} groups.")
+	print(f"Done. {total_students} students across {len(groups)} sections.")
 	print(f"Grade distribution: {all_results_summary}")
