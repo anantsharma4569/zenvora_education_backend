@@ -29,7 +29,7 @@ def list_courses(department=None):
 	return frappe.get_all(
 		"Course",
 		filters=filters,
-		fields=["name", "course_name", "department"],
+		fields=["name", "course_name", "department", "description"],
 		order_by="course_name",
 		ignore_permissions=True,
 	)

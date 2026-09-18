@@ -140,12 +140,22 @@ def create_program(program_name, department=None):
 @frappe.whitelist()
 def list_student_groups():
 	_require_admin()
-	return frappe.get_all(
+	rows = frappe.get_all(
 		"Student Group",
 		fields=["name", "student_group_name", "program", "academic_year", "academic_term", "max_strength", "disabled"],
 		order_by="student_group_name",
 		ignore_permissions=True,
 	)
+	counts = dict(
+		frappe.db.sql(
+			"""select sgs.parent, count(*) from `tabStudent Group Student` sgs
+			join `tabStudent` s on s.name = sgs.student and s.enabled = 1
+			where sgs.active = 1 group by sgs.parent"""
+		)
+	)
+	for row in rows:
+		row["student_count"] = counts.get(row.name, 0)
+	return rows
 
 
 @frappe.whitelist()

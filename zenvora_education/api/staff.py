@@ -32,6 +32,9 @@ def get_staff_directory(company=None):
 			Employee.designation,
 			Employee.department,
 			Employee.status,
+			Employee.personal_email,
+			Employee.date_of_joining,
+			Employee.user_id,
 			Designation.is_teaching_role,
 		)
 		.where(Employee.status == "Active")
@@ -42,6 +45,8 @@ def get_staff_directory(company=None):
 	rows = query.run(as_dict=True)
 	for row in rows:
 		row.is_teaching_role = bool(row.is_teaching_role)
+		row.has_login = bool(row.user_id)
+		row.date_of_joining = str(row.date_of_joining) if row.date_of_joining else None
 
 	teaching_staff = [row for row in rows if row.is_teaching_role]
 	non_teaching_staff = [row for row in rows if not row.is_teaching_role]

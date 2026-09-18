@@ -29,6 +29,34 @@ def _students_in_group(student_group):
 	)
 
 
+def _with_placement(rows):
+	"""Attach `student_group` (section) and `program` (class) to each row - the
+	list shows where a student sits, and Student itself has neither field."""
+	if not rows:
+		return rows
+	members = frappe.get_all(
+		"Student Group Student",
+		filters={"student": ["in", [r["name"] for r in rows]], "active": 1},
+		fields=["student", "parent"],
+		ignore_permissions=True,
+	)
+	group_of = {m.student: m.parent for m in members}
+	program_of = dict(
+		frappe.get_all(
+			"Student Group",
+			filters={"name": ["in", list(set(group_of.values()))]},
+			fields=["name", "program"],
+			as_list=True,
+			ignore_permissions=True,
+		)
+	)
+	for r in rows:
+		group = group_of.get(r["name"])
+		r["student_group"] = group
+		r["program"] = program_of.get(group) if group else None
+	return rows
+
+
 @frappe.whitelist()
 def list_students(search=None, program=None, student_group=None):
 	"""Admin/Accounts: all enabled students, optionally filtered by name search,
@@ -53,12 +81,14 @@ def list_students(search=None, program=None, student_group=None):
 			if not enrolled:
 				return []
 			filters["name"] = ["in", enrolled]
-		return frappe.get_all(
-			"Student",
-			filters=filters,
-			fields=["name", "student_name", "student_email_id", "enabled"],
-			order_by="student_name",
-			ignore_permissions=True,
+		return _with_placement(
+			frappe.get_all(
+				"Student",
+				filters=filters,
+				fields=["name", "student_name", "student_email_id", "enabled"],
+				order_by="student_name",
+				ignore_permissions=True,
+			)
 		)
 
 	instructor = get_current_instructor()
@@ -89,12 +119,14 @@ def list_students(search=None, program=None, student_group=None):
 		if not student_names:
 			return []
 
-	return frappe.get_all(
-		"Student",
-		filters={"name": ["in", student_names], "enabled": 1},
-		fields=["name", "student_name"],
-		order_by="student_name",
-		ignore_permissions=True,
+	return _with_placement(
+		frappe.get_all(
+			"Student",
+			filters={"name": ["in", student_names], "enabled": 1},
+			fields=["name", "student_name"],
+			order_by="student_name",
+			ignore_permissions=True,
+		)
 	)
 
 
@@ -154,14 +186,23 @@ def create_student(
 	# Student.validate() creates a linked User (Education app's own hook) - that
 	# insert runs under frappe.session.user regardless of the ignore_permissions
 	# passed here, so it needs a real elevation, not just a flag.
-	with as_administrator():
-		student.insert(ignore_permissions=True)
-		enrollment.student = student.name
-		enrollment.student_name = student.student_name
-		enrollment.insert(ignore_permissions=True)
+	#
+	# Several of these inserts fire hooks that commit mid-way, so a failure in a
+	# later step cannot be undone by rollback alone: the Student can vanish while
+	# its Program Enrollment survives, and the next student issued that recycled
+	# ID then fails with "Student is already enrolled". Undo explicitly.
+	try:
+		with as_administrator():
+			student.insert(ignore_permissions=True)
+			enrollment.student = student.name
+			enrollment.student_name = student.student_name
+			enrollment.insert(ignore_permissions=True)
 
-		if student_group:
-			_add_to_student_group(student_group, student.name, student.student_name)
+			if student_group:
+				_add_to_student_group(student_group, student.name, student.student_name)
+	except Exception:
+		_undo_partial_student(student.name)
+		raise
 
 	return {
 		"student": student.name,
@@ -170,17 +211,41 @@ def create_student(
 	}
 
 
+def _undo_partial_student(name):
+	if not name:
+		return
+	frappe.db.rollback()
+	frappe.db.delete("Student Group Student", {"student": name})
+	frappe.db.delete("Program Enrollment", {"student": name})
+	if frappe.db.exists("Student", name):
+		customer, user = frappe.db.get_value("Student", name, ["customer", "user"])
+		frappe.delete_doc("Student", name, force=True, ignore_permissions=True)
+		if customer and frappe.db.exists("Customer", customer):
+			frappe.delete_doc("Customer", customer, force=True, ignore_permissions=True)
+		if user and frappe.db.exists("User", user):
+			frappe.delete_doc("User", user, force=True, ignore_permissions=True)
+	frappe.db.commit()
+
+
 def _add_to_student_group(student_group, student, student_name):
+	"""Add one member row directly. Saving the whole Student Group would re-run its
+	validate() over every existing member, and that check is fragile (it rejects the
+	whole section if any single member is inactive)."""
 	group = frappe.get_doc("Student Group", student_group)
-	if group.max_strength and len(group.students) >= group.max_strength:
+	members = group.students
+	if group.max_strength and len(members) >= group.max_strength:
 		frappe.throw(_("Section {0} is full ({1} students)").format(student_group, group.max_strength))
-	group.append(
-		"students",
+	next_no = max((row.group_roll_number or 0 for row in members), default=0) + 1
+	frappe.get_doc(
 		{
+			"doctype": "Student Group Student",
+			"parent": student_group,
+			"parenttype": "Student Group",
+			"parentfield": "students",
+			"idx": len(members) + 1,
 			"student": student,
 			"student_name": student_name,
-			"group_roll_number": max((row.group_roll_number or 0 for row in group.students), default=0) + 1,
+			"group_roll_number": next_no,
 			"active": 1,
-		},
-	)
-	group.save(ignore_permissions=True)
+		}
+	).insert(ignore_permissions=True)
