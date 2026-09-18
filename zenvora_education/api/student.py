@@ -108,14 +108,24 @@ def create_student(
 	date_of_birth=None,
 	gender=None,
 	academic_term=None,
+	student_group=None,
 ):
 	"""Onboard a new student: creates the Student record (which auto-creates
 	a Website User with the Student role via the Education app's own
 	validate_user hook, unless Education Settings has user creation disabled)
 	and enrolls them into a Program for the given Academic Year in one step.
+
+	`student_group` (the section, e.g. "Grade 3 - B") is optional but should
+	be passed: without it the student sits in a class but in no section, so
+	attendance can't be marked for them and section filters never show them.
 	"""
 	if not is_admin():
 		frappe.throw(_("Not authorized to create students"))
+
+	if student_group:
+		group_program = frappe.db.get_value("Student Group", student_group, "program")
+		if group_program != program:
+			frappe.throw(_("Section {0} does not belong to class {1}").format(student_group, program))
 
 	student = frappe.get_doc(
 		{
@@ -150,4 +160,27 @@ def create_student(
 		enrollment.student_name = student.student_name
 		enrollment.insert(ignore_permissions=True)
 
-	return {"student": student.name, "program_enrollment": enrollment.name}
+		if student_group:
+			_add_to_student_group(student_group, student.name, student.student_name)
+
+	return {
+		"student": student.name,
+		"program_enrollment": enrollment.name,
+		"student_group": student_group,
+	}
+
+
+def _add_to_student_group(student_group, student, student_name):
+	group = frappe.get_doc("Student Group", student_group)
+	if group.max_strength and len(group.students) >= group.max_strength:
+		frappe.throw(_("Section {0} is full ({1} students)").format(student_group, group.max_strength))
+	group.append(
+		"students",
+		{
+			"student": student,
+			"student_name": student_name,
+			"group_roll_number": max((row.group_roll_number or 0 for row in group.students), default=0) + 1,
+			"active": 1,
+		},
+	)
+	group.save(ignore_permissions=True)

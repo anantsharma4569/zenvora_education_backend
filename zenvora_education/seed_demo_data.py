@@ -29,7 +29,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from zenvora_education.api.course import create_course
-from zenvora_education.api.employee import create_employee
+from zenvora_education.api.employee import create_employee, create_employee_login
 from zenvora_education.api.settings import (
 	create_academic_term,
 	create_academic_year,
@@ -87,6 +87,12 @@ LAST_NAMES = [
 	"Iyer", "Rao", "Mehta", "Joshi", "Desai", "Kapoor", "Malhotra", "Chauhan",
 	"Bose", "Menon", "Pillai", "Agarwal",
 ]
+
+# Every seeded employee gets a login (teachers -> Instructor role, accountants
+# -> Accounts User, others -> Employee) so the role-scoped screens can actually
+# be used. Demo-only credential for a demo dataset - change or disable in any
+# environment that holds real data.
+DEMO_LOGIN_PASSWORD = "Zenvora@2026"
 
 random.seed(42)
 _used_names = set()
@@ -567,5 +573,26 @@ def _run():
 		idx += 1
 	# Remaining `unmarked_n` employees are left with no Attendance record for today.
 
+	print("Creating staff logins...")
+	print(f"  {create_staff_logins()} logins created")
+
 	print(f"Done. {total_students} students across {len(groups)} sections.")
 	print(f"Grade distribution: {all_results_summary}")
+
+
+def create_staff_logins(password=DEMO_LOGIN_PASSWORD):
+	"""Give every Employee without a login one (skips those that have one or
+	have no personal email). Safe to re-run:
+
+	    bench --site school.localhost execute zenvora_education.seed_demo_data.create_staff_logins
+	"""
+	frappe.flags.in_import = True  # bulk User creation trips Frappe's 60/min throttle
+	created = 0
+	with as_administrator():
+		instructor_employees = set(frappe.get_all("Instructor", pluck="employee"))
+		for employee in frappe.get_all("Employee", filters={"user_id": ["is", "not set"]}, pluck="name"):
+			frappe.flags.in_import = True
+			if create_employee_login(employee, password, is_instructor=employee in instructor_employees):
+				created += 1
+		frappe.db.commit()
+	return created
