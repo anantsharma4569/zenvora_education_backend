@@ -158,6 +158,15 @@ CLEANUP_DOCTYPES = [
 	"Academic Term",
 	"Academic Year",
 	"Customer",  # auto-created per Student by Student.on_update -> create_customer
+	# Child tables: frappe.db.delete(<parent>) does NOT remove them. Section/scale
+	# names are reused between seed runs, so leftover rows silently attach to the
+	# next run's same-named parent (stale members, duplicated grading intervals).
+	"Student Group Student",
+	"Student Group Instructor",
+	"Grading Scale Interval",
+	"Assessment Plan Criteria",
+	"Assessment Result Detail",
+	"Fee Component",
 ]
 
 

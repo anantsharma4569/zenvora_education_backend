@@ -59,8 +59,16 @@ def as_administrator():
 	is_admin()/is_accounts()/etc - this is a privilege escalation, not a permission check.
 	"""
 	original_user = frappe.session.user
+	original_sid = frappe.session.sid
+	original_data = frappe.session.data
 	frappe.set_user("Administrator")
 	try:
 		yield
 	finally:
 		frappe.set_user(original_user)
+		# frappe.set_user() overwrites session.sid with the *username* and blanks
+		# session.data. Frappe persists the session from those at the end of the
+		# request, so without restoring them the real session record is clobbered
+		# and the caller is logged out on their next request.
+		frappe.session.sid = original_sid
+		frappe.session.data = original_data
