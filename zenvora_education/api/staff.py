@@ -49,6 +49,20 @@ def get_staff_directory(company=None):
 
 
 @frappe.whitelist()
+def list_designations():
+	"""All Designations with their is_teaching_role flag, for the Add Staff form's
+	dropdown (teaching ones first). Admin-only, like the rest of staff management."""
+	if not is_admin():
+		frappe.throw(_("Not authorized to view designations"))
+
+	rows = frappe.get_all(
+		"Designation", fields=["name", "is_teaching_role"], order_by="name", ignore_permissions=True
+	)
+	rows.sort(key=lambda r: (not r.is_teaching_role, r.name))
+	return [{"name": r.name, "is_teaching_role": bool(r.is_teaching_role)} for r in rows]
+
+
+@frappe.whitelist()
 def is_employee_teaching_staff(employee):
 	"""True if `employee`'s Designation is flagged is_teaching_role, else False.
 
