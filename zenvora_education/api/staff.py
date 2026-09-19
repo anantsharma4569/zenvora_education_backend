@@ -6,8 +6,8 @@ from zenvora_education.api.utils import is_admin
 
 
 @frappe.whitelist()
-def get_staff_directory(company=None):
-	"""Active Employees split into teaching_staff / non_teaching_staff based on
+def get_staff_directory(company=None, status="Active"):
+	"""Employees (Active by default; pass status="Inactive" or "all") split into teaching_staff / non_teaching_staff based on
 	whether their Designation has `is_teaching_role` checked.
 
 	Returns:
@@ -37,8 +37,9 @@ def get_staff_directory(company=None):
 			Employee.user_id,
 			Designation.is_teaching_role,
 		)
-		.where(Employee.status == "Active")
 	)
+	if status != "all":
+		query = query.where(Employee.status == ("Inactive" if status == "Inactive" else "Active"))
 	if company:
 		query = query.where(Employee.company == company)
 
