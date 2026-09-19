@@ -78,6 +78,19 @@ RESOURCES = {
 		"fields": ["course_name", "department", "description"],
 		"rename": lambda d: d.course_name,
 	},
+	"course_schedule": {
+		"doctype": "Course Schedule",
+		"fields": [
+			"student_group",
+			"course",
+			"instructor",
+			"room",
+			"schedule_date",
+			"from_time",
+			"to_time",
+			"class_schedule_color",
+		],
+	},
 	"student": {
 		"doctype": "Student",
 		"fields": ["first_name", "last_name", "date_of_birth", "gender"],
