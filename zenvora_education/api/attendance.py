@@ -11,7 +11,7 @@ from zenvora_education.api.utils import (
 
 
 @frappe.whitelist()
-def get_employee_attendance(employee=None, from_date=None, to_date=None):
+def get_employee_attendance(employee=None, from_date=None, to_date=None, status=None):
 	"""Admin: all employees (optionally filtered by `employee`). Everyone else: self only."""
 	filters = {}
 
@@ -27,6 +27,9 @@ def get_employee_attendance(employee=None, from_date=None, to_date=None):
 	if from_date and to_date:
 		filters["attendance_date"] = ["between", [from_date, to_date]]
 
+	if status:
+		filters["status"] = status
+
 	return frappe.get_all(
 		"Attendance",
 		filters=filters,
@@ -37,8 +40,14 @@ def get_employee_attendance(employee=None, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
-def get_student_attendance(student_group=None, date=None):
-	"""Admin: all Student Groups. Instructor: only Student Groups assigned to them. Others: blocked."""
+def get_student_attendance(
+	student_group=None, date=None, status=None, from_date=None, to_date=None, program=None, student=None
+):
+	"""Admin: all Student Groups. Instructor: only Student Groups assigned to them. Others: blocked.
+
+	`status` (Present/Absent/Leave), `program` (class), `student` and `from_date`/`to_date` narrow the
+	list; `date` is an exact day. Filters only ever narrow what the caller is already allowed to see.
+	"""
 	filters = {}
 
 	if is_admin():
@@ -60,8 +69,26 @@ def get_student_attendance(student_group=None, date=None):
 		else:
 			filters["student_group"] = ["in", allowed_groups]
 
+	if program:
+		program_groups = frappe.get_all("Student Group", filters={"program": program}, pluck="name")
+		allowed = filters.get("student_group")
+		if allowed is None:
+			filters["student_group"] = ["in", program_groups or [""]]
+		else:
+			# A specific section (or the instructor's own sections) is already set: keep only its overlap.
+			current = [allowed] if isinstance(allowed, str) else allowed[1]
+			filters["student_group"] = ["in", [g for g in current if g in program_groups] or [""]]
+
+	if student:
+		filters["student"] = student
+
 	if date:
 		filters["date"] = date
+	elif from_date and to_date:
+		filters["date"] = ["between", [from_date, to_date]]
+
+	if status:
+		filters["status"] = status
 
 	return frappe.get_all(
 		"Student Attendance",
