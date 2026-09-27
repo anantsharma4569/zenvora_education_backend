@@ -270,7 +270,7 @@ def get_student_detail(name):
 	"""Everything about one student for the detail view: profile, guardians, class/section,
 	an attendance summary, outstanding fees and the most recent results."""
 	if not _can_view_student(name):
-		frappe.throw(_("Not authorized to view this student"), frappe.PermissionError)
+		frappe.throw(_("Not authorized to view this student"))
 
 	doc = frappe.get_doc("Student", name)
 	group = frappe.db.get_value("Student Group Student", {"student": name, "active": 1}, "parent")
